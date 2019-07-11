@@ -1,0 +1,4 @@
+* Mock mapi server
+This project is a mock implementation of the server side of the MAPI protocol.
+This will hopefully be useful in debugging MAPI clients (mclient, stethoscope
+etc).
