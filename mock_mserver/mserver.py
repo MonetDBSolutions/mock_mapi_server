@@ -10,36 +10,61 @@ from threading import Thread
 
 LOGGER = logging.getLogger(__name__)
 MLEN = 512
+# The first two bytes of each message are the length of the message. The max
+# number of bytes we can send in an 8k block is 8190 (8K - 2 bytes.)
+MAX_BLOCK_LEN = 8190
 
 # listen for connections
 # for each incoming connection, spawn a thread to serve
 
 
+def send_message(connection, msg):
+    if msg == "":
+        connection.send(b'\x01\00')
+        return
+
+    msg_bytes = msg.encode('utf-8')
+    while len(msg_bytes) > 0:
+        snd_bytes = msg_bytes[:MAX_BLOCK_LEN]
+        ln = ((len(snd_bytes) << 1) + 1).to_bytes(2, 'little')
+        connection.send(ln + snd_bytes)
+
+        msg_bytes = msg_bytes[MAX_BLOCK_LEN + 1:]
+
+
+def receive_message(connection):
+    buf = connection.recv(2)
+    ln = (int.from_bytes(buf, 'little') - 1) >> 1
+    # eof from client
+    if ln < 0:
+        return b""
+    buf = connection.recv(ln)
+    return buf
+
+
 def handler(connection):
     # Send the challenge
-    connection.send(b'\xcb\x00udkTtkbSrcl:mserver:9:PROT10,RIPEMD160,SHA256,SHA1,MD5,COMPRESSION_SNAPPY,COMPRESSION_LZ4:LIT:SHA512:')
-    buf = connection.recv(MLEN)
+    challenge = 'udkTtkbSrcl:mserver:9:PROT10,RIPEMD160,SHA256,SHA1,MD5,COMPRESSION_SNAPPY,COMPRESSION_LZ4:LIT:SHA512:'
+    send_message(connection, challenge)
+    buf = receive_message(connection)  # Login challenge response
     print("Received 1 %s" % buf)
-    connection.send(b'\x01\x00')
-    buf = connection.recv(MLEN)
+
+    send_message(connection, "")
+    buf = receive_message(connection)  # profiler.setheartbeat()
     print("Received 2 %s" % buf)
-    connection.send(b'\x01\x00')
-    buf = connection.recv(MLEN)
+
+    send_message(connection, "")
+    buf = receive_message(connection)  # profiler.openstream()
     print("Received 3 %s" % buf)
-    connection.send(b'\x01\x00')
-    buf = connection.recv(MLEN)
-    print("Received 4 %s" % buf)
-    connection.send(b'\x01\x00')
-    buf = connection.recv(MLEN)
-    print("Received 5 %s" % buf)
-    connection.send(b'\x7d\03')
 
     with open('/home/kutsurak/work/monet/sources/mdb-lite/mal_analytics/tests/data/traces/jan2019_sf10_10threads/Q01_variation001.json') as fl:
-        lines = fl.readlines();
-        for l in lines:
-            connection.send(l.encode('utf-8'))
-    # buf = connection.recv(MLEN)
-    # print("Received 6 %s" % buf)
+        lines = fl.readlines()
+        for i in range(5):
+            for l in lines:
+                send_message(connection, l)
+
+    buf = receive_message(connection)
+    print("Received 4 %s" % buf)
 
 
 def start_server(server_address=('localhost', 50000)):
@@ -48,11 +73,11 @@ def start_server(server_address=('localhost', 50000)):
     sock.bind(server_address)
     sock.listen(2)
 
-    while(True):
-        connection, address = sock.accept()
-        print("Accepted connection from {}".format(address))
-        thread = Thread(target = handler, args=(connection,))
-        thread.start()
+    # while(True):
+    connection, address = sock.accept()
+    print("Accepted connection from {}".format(address))
+    thread = Thread(target = handler, args=(connection,))
+    thread.start()
     thread.join()
 
 
